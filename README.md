@@ -126,3 +126,64 @@ void *thread_inc(void *buf) {
     }
 }
 ```
+Running this new program multiple times would yield the same final counter value of zero, signifying that the data race has been removed!
+```
+$ for i in {1..10}; do ./race-condition ; done;
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+Final counter value is 0
+```
+
+Let's inspect the assembly generated for, say ``thread_inc``:
+```
+0000000000001410 <thread_inc>:
+void *thread_inc(void *buf) {
+    1410:       f3 0f 1e fa             endbr64 
+    1414:       b8 80 96 98 00          mov    $0x989680,%eax
+    1419:       0f 1f 80 00 00 00 00    nopl   0x0(%rax)
+        atomic_fetch_add(&counter, 1);
+    1420:       f0 83 05 ec 2b 00 00    lock addl $0x1,0x2bec(%rip)        # 4014 <counter>
+    1427:       01 
+    for (i = 0; i < 10000000; i++) {
+    1428:       83 e8 01                sub    $0x1,%eax
+    142b:       75 f3                   jne    1420 <thread_inc+0x10>
+}
+    142d:       c3                      retq   
+    142e:       66 90                   xchg   %ax,%ax
+```
+The interesting part which is changed is at the relative address ``1420``:
+```
+    1420:       f0 83 05 ec 2b 00 00    lock addl $0x1,0x2bec(%rip)        # 4014 <counter>
+```
+where the ``addl`` instruction is now prefixed with a ``lock`` keyword. In x86-64 assembly this causes the relevant cacheline
+holding ``counter`` to be **locked** for the duration of the ``addl`` instruction. This means, no other updates to this memory
+location would be allowed by other cores running threads until the current insteruction completes and its impact is visible to all
+cpu cores. Hence, the ``lock addl`` instruction effectively is **observed** as atomic by all other cpu cores and the data race is
+removed.
+> Atomic instructions lock the cacheline for the data they are operating on, so that the read-modify-write operation becomes visible to all other cores at the same time, i.e., before any other reads/writes are allowed to the shared data.
+
+However, note that running the atomic version of the program is significantly slower (~10x) due to this locking of the cacheline and stalling other cores:
+```
+$ time ./race-condition 
+Final counter value is 0
+
+real	0m0.254s
+user	0m0.500s
+sys	0m0.000s
+```
+This is compared to the non atomic version:
+```
+$ time ./race-condition 
+Final counter value is -474345
+
+real	0m0.022s
+user	0m0.039s
+sys	0m0.004s
+```
