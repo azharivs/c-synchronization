@@ -23,14 +23,23 @@ objdump -Sd race-condition | less
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
+#ifdef ATOMIC
+atomic_int counter = 0;
+#else
 int counter = 0;
+#endif
 
 void *thread_inc(void *buf) {
     int i = 0;
 
     for (i = 0; i < 10000000; i++) {
+#ifdef ATOMIC
+        atomic_fetch_add(&counter, 1);
+#else
         counter ++;
+#endif
         asm volatile ("" ::: "memory");
     }
 }
@@ -39,7 +48,11 @@ void *thread_dec(void *buf) {
     int i = 0;
 
     for (i = 0; i < 10000000; i++) {
+#ifdef ATOMIC
+        atomic_fetch_add(&counter, -1);
+#else
         counter --;
+#endif
         asm volatile ("" ::: "memory");
     }
 }
