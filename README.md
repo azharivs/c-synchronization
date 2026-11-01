@@ -86,3 +86,43 @@ As you can see this is just one assembly instruction that directly adds ``0x1`` 
         asm volatile ("" ::: "memory");
 ```
 This is basically a ``nop`` assembly instruction which may be removed by the C compiler, hence we use the keyword ``volatile`` followed by ``asm`` to tell the C compiler that this instruction should be observed. Also the ``memory`` at the last part is what we call the clobber of the inline assembly which basically tells the compiler that we expect the state of memory to have changed after this ``nop`` instruction. The end result is that the C compiler would not perform any optimizations including re-ordering of the counter update and would respect it by generating the ``addl`` instruction per loop iteration.
+
+If we run this program we expect the eventual value of the counter to be zero as it is ultimately incremented and decremented by the same number of times. However, multiple runs show that each time the counter rests at a different random final result:
+```
+$ ./race-condition 
+Final counter value is -693983
+$ ./race-condition 
+Final counter value is -2199129
+$ ./race-condition 
+Final counter value is -4578855
+$ ./race-condition 
+Final counter value is 3008624
+$ ./race-condition 
+Final counter value is -4332533
+```
+This is cause by having a data race on ``counter`` as defined by C-language convention: We have two threads both updating a shared data, i.e., ``counter``. Surprisingly, the race condition happens despite the counter update happening during a single assembly instruction ``addl``, ``subl``. 
+> Assembly instructions are not necessarily executed atomically unless there are explicit or implicit hardware guarantees.
+ 
+In fact, what could happen is that ``counter`` is updated on the private L1/L2 cache of one core running one thread, while the other core running the other thread is yet to be updated via cache coherence protocol. 
+> Even if an assembly instruction is executed atomically on the CPU it is being executed, it may not look atomic from the perspective of other CPUs.
+
+Hence, the other thread will get the wrong value of ``counter`` to start with. Whichever thread wins the ``store`` race is the one that would determine the final result of ``counter`` in this instance of the **data race**. This winning is determined not only by chronological order of execution but also by CPU speculative execution, store and load buffer implementation, and cache coherenece protocol, among many other things.
+
+The race condition can be removed as specified by C language convention by using atomic operations for the counter update, as one option:
+```
+#include <stdatomic.h>
+...
+atomic_int counter = 0;
+atomic_fetch_add(&counter, 1);
+```
+There are other ways to do this but which would be compiler dependent such as the sync_* directives for GCC. However, using the atmoic types and operations from ``stdatomic.h`` are the portable option which works across compilers and CPU architectures. The new ``thread_inc`` would now look like: 
+```
+void *thread_inc(void *buf) {
+    int i = 0;
+
+    for (i = 0; i < 10000000; i++) {
+        atomic_fetch_add(&counter,1);
+        asm volatile ("" ::: "memory");
+    }
+}
+```
