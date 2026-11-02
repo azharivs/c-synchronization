@@ -70,7 +70,63 @@ Final counter value is -535694
 Final counter value is -4037192
 Final counter value is 4847624
 ```
+## Illustrating The Data Race
+I am going to show you the exact sequence of instructions that are executed by both cores running ``thread_inc`` and ``thread_dec`` and how the race between storing the final value of ``counter`` from the register can
+cause invalid data. To do this, I will insert uprobes at the store instructions for ``thread_inc`` and ``thread_dec``. uprobes are code snippets that get triggered whenever a certain instruction gets executed. Using the ``perf`` tracing tool, I will record the execution of these uprobes with the value of the ``eax`` register so we can observe how the race condition actually unfolds in time. To create the uprobes:
+```
+$ sudo /usr/bin/perf probe -x ./race-condition --add 'thread_inc=0x126e new_counter=%ax'
+Added new event:
+  probe_race:thread_inc (on 0x126e in /src/c-synchronization/race/race-condition with new_counter=%ax)
 
+$ sudo /usr/bin/perf probe -x ./race-condition --add 'thread_dec=0x12a9 new_counter=%ax'
+Added new event:
+  probe_race:thread_dec (on 0x12a9 in /src/c-synchronization/race/race-condition with new_counter=%ax)
+```
+Double check if the uprobes are installed:
+```
+$ sudo perf list | grep probe_race:thread
+  probe_race:thread_dec                              [Tracepoint event]
+  probe_race:thread_inc                              [Tracepoint event]
+```
+Now we start the application under perf while tracing it for our probes. Just make sure you press ``Ctrl+c`` after a couple of seconds otherwise you will gather a massive amount of trace data using up your disk.
+```
+$ sudo /usr/bin/perf record -e 'probe_race:thread_*' -- ./race-condition 
+^C[ perf record: Woken up 53 times to write data ]
+Warning:
+8 out of order events recorded.
+[ perf record: Captured and wrote 127.536 MB perf.data (1496337 samples) ]
+```
+Now let's look at the gathered binary trace data:
+```
+$ sudo /usr/bin/perf script
+```
+and this is an excerpt of the output you get:
+```
+  race-condition 246833 [004] 534303.329988: probe_race:thread_inc: (558011bfa26e) new_counter=0xd3
+  race-condition 246834 [015] 534303.329988: probe_race:thread_dec: (558011bfa2a9) new_counter=0xd1
+  race-condition 246833 [004] 534303.329989: probe_race:thread_inc: (558011bfa26e) new_counter=0xd2
+  race-condition 246834 [015] 534303.329989: probe_race:thread_dec: (558011bfa2a9) new_counter=0xd0
+  race-condition 246833 [004] 534303.329990: probe_race:thread_inc: (558011bfa26e) new_counter=0xd1
+  race-condition 246834 [015] 534303.329990: probe_race:thread_dec: (558011bfa2a9) new_counter=0xcf
+  race-condition 246833 [004] 534303.329992: probe_race:thread_inc: (558011bfa26e) new_counter=0xd0
+  race-condition 246834 [015] 534303.329992: probe_race:thread_dec: (558011bfa2a9) new_counter=0xce
+  race-condition 246833 [004] 534303.329993: probe_race:thread_inc: (558011bfa26e) new_counter=0xcf
+  race-condition 246834 [015] 534303.329993: probe_race:thread_dec: (558011bfa2a9) new_counter=0xcd
+  race-condition 246833 [004] 534303.329994: probe_race:thread_inc: (558011bfa26e) new_counter=0xce
+  race-condition 246834 [015] 534303.329994: probe_race:thread_dec: (558011bfa2a9) new_counter=0xcc
+  race-condition 246833 [004] 534303.329996: probe_race:thread_inc: (558011bfa26e) new_counter=0xcd
+  race-condition 246834 [015] 534303.329996: probe_race:thread_dec: (558011bfa2a9) new_counter=0xcb
+  race-condition 246833 [004] 534303.329997: probe_race:thread_inc: (558011bfa26e) new_counter=0xcc
+  race-condition 246834 [015] 534303.329997: probe_race:thread_dec: (558011bfa2a9) new_counter=0xca
+  race-condition 246833 [004] 534303.329998: probe_race:thread_inc: (558011bfa26e) new_counter=0xcb
+  race-condition 246834 [015] 534303.329998: probe_race:thread_dec: (558011bfa2a9) new_counter=0xc9
+  race-condition 246833 [004] 534303.330000: probe_race:thread_inc: (558011bfa26e) new_counter=0xca
+  race-condition 246834 [015] 534303.330000: probe_race:thread_dec: (558011bfa2a9) new_counter=0xc8
+  race-condition 246833 [004] 534303.330001: probe_race:thread_inc: (558011bfa26e) new_counter=0xc9
+  race-condition 246834 [015] 534303.330001: probe_race:thread_dec: (558011bfa2a9) new_counter=0xc7
+```
+
+## Updating the Counter via a Single Instruction
 Now let's bring compiler optimization into the picture hoping that the ``counter`` update is performed by one assembly instructions. The objective is to remove the race condition and have the counter correctly incremented or decremented.
 ```
 gcc -g3 -O2 race-condition.c -o race-condition -lpthread
@@ -125,6 +181,7 @@ In fact, what could happen is that ``counter`` is updated on the private L1/L2 c
 
 Hence, the other thread will get the wrong value of ``counter`` to start with. Whichever thread wins the ``store`` race is the one that would determine the final result of ``counter`` in this instance of the **data race**. This winning is determined not only by chronological order of execution but also by CPU speculative execution, store and load buffer implementation, and cache coherenece protocol, among many other things.
 
+## Using Atomic Variables
 The race condition can be removed as specified by C language convention by using atomic operations for the counter update, as one option:
 ```
 #include <stdatomic.h>
