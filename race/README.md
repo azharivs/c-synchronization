@@ -23,14 +23,57 @@ void *thread_dec(void *buf) {
     }
 }
 ```
-
 Let's compile and build the program and look at the generated assembly:
 ```
-gcc -g3 -O2 race-condition.c -o race-condition -lpthread
+gcc -g3 -O0 race-condition.c -o race-condition -lpthread
 ```
-I am using -g3 to add full debug info and -O2 to have compiler optimizations. Now we can inspect the assembly along with the source code:
+I am using -g3 to add full debug info and -O0 to disable any compiler optimizations. Now we can inspect the assembly along with the source code:
 ```
 objdump -Sd race-condition | less
+```
+This is the part where ``counter`` is incremented. It is obvious that first the content of memory holding ``counter`` is loaded into the ``eax`` register, then ``eax`` is incremented at line ``126b``, and finally it is stored back to the same memory location.
+```
+       counter ++;
+    1265:       8b 05 a9 2d 00 00       mov    0x2da9(%rip),%eax        # 4014 <counter>
+    126b:       83 c0 01                add    $0x1,%eax
+    126e:       89 05 a0 2d 00 00       mov    %eax,0x2da0(%rip)        # 4014 <counter>
+```
+The decrement operation is also done similarly. There is a concern about what will be the final result of the memory address holding ``counter`` when two CPU cores are simultaneously executing these instructions. Let's consider the following order of execution among the two cpu cores as an example:
+```
+    1265:       8b 05 a9 2d 00 00       mov    0x2da9(%rip),%eax        # 4014 <counter>
+    126b:       83 c0 01                add    $0x1,%eax
+
+    12a0:       8b 05 6e 2d 00 00       mov    0x2d6e(%rip),%eax        # 4014 <counter>
+    12a6:       83 e8 01                sub    $0x1,%eax
+
+    126e:       89 05 a0 2d 00 00       mov    %eax,0x2da0(%rip)        # 4014 <counter>
+    12a9:       89 05 65 2d 00 00       mov    %eax,0x2d65(%rip)        # 4014 <counter>
+```
+Say we start with ``counter = 5``. 
+The first two assembly instructions are loading counter into a register and incrementing it on, say core0, so now ``eax[core0] = 6``.
+The following two assembly instructions with relative file address ``12a0,12a6`` belong to the decrement thread which is
+executing on say, core1, hence: ``eax[core1] = 4``. Note that each core has its own set of registers so their values would differ.
+The last two instrictions store the value stored in the ``eax`` register back into the memory address for ``counter``, effectively updating its value.
+Now, whichever core wins the race (by being last!!) would determine the final result stored in ``counter``. For example, if the decrementing thread is the last one, as is the case above, then ``counter = 4``. On the other hand, if the incrementing thread is the last, then we end up with ``counter = 6``. This is a `race condition`. The end value stored in a memory location is undefined and subject to runtime. More importantly, this value is not even correct as the increment and decrement would have logically cancelled and we should have ended up with ``counter = 5``.
+
+Running this program multiple times would result in random final values for counter as you can see below:
+```
+$ for i in {1..10}; do ./race-condition ; done;
+Final counter value is 2806895
+Final counter value is 2624219
+Final counter value is -3182201
+Final counter value is -521820
+Final counter value is -9672384
+Final counter value is 488048
+Final counter value is -1894844
+Final counter value is -535694
+Final counter value is -4037192
+Final counter value is 4847624
+```
+
+Now let's bring compiler optimization into the picture hoping that the ``counter`` update is performed by one assembly instructions. The objective is to remove the race condition and have the counter correctly incremented or decremented.
+```
+gcc -g3 -O2 race-condition.c -o race-condition -lpthread
 ```
 
 Let'ls focus on the incrementing thread, ```thread_inc()``` function for example:
