@@ -21,13 +21,12 @@ objdump -Sd petersons-alg | less
 #include <stdlib.h>
 
 int counter = 0;
-int flag[2] = {0, 0};
-int turn = 0;
+volatile int flag[2] = {0, 0};
+volatile int turn = 0;
 
 // P0
 void *thread_inc(void *buf) {
     int i = 0;
-    int tmp;
 
     for (i = 0; i < 10000000; i++) {
         flag[0] = 1;
@@ -35,6 +34,7 @@ void *thread_inc(void *buf) {
         while (flag[1] && turn == 1)
             ;
         counter ++;
+        asm volatile ("" ::: "memory");
         flag[0] = 0;
     }
 }
@@ -42,7 +42,6 @@ void *thread_inc(void *buf) {
 // P1
 void *thread_dec(void *buf) {
     int i = 0;
-    int tmp;
 
     for (i = 0; i < 10000000; i++) {
         flag[1] = 1;
@@ -50,11 +49,12 @@ void *thread_dec(void *buf) {
         while (flag[0] && turn == 0)
             ;
         counter --;
+        asm volatile ("" ::: "memory");
         flag[1] = 0;
     }
 }
 
-int main() {
+int main(int argc, char **argv) {
     pthread_attr_t attr;
     pthread_t t1,t2;
     int s = 0;

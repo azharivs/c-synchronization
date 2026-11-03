@@ -21,8 +21,8 @@ objdump -Sd petersons-alg | less
 #include <stdlib.h>
 
 int counter = 0;
-int flag[2] = {0, 0};
-int turn = 0;
+volatile int flag[2] = {0, 0};
+volatile int turn = 0;
 
 // P0
 void *thread_inc(void *buf) {
