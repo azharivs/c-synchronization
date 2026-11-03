@@ -59,16 +59,10 @@ int main() {
     pthread_t t1,t2;
     int s = 0;
     void *res;
-    cpu_set_t c;   
-
-    CPU_ZERO(&c);
-    CPU_SET(3, &c);
 
     s = pthread_attr_init(&attr);
     if (s)
         perror("pthread_attr_init");
-
-    //pthread_attr_setaffinity_np(&attr, sizeof(c), &c);
 
     s = pthread_create(&t1, &attr, thread_inc, NULL);
     if (s)

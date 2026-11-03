@@ -30,15 +30,12 @@ void *thread_inc(void *buf) {
     int tmp;
 
     for (i = 0; i < 10000000; i++) {
-//        flag[0] = 1;
-//        turn = 1;
-        __sync_lock_test_and_set(&flag[0], 1);
-        __sync_lock_test_and_set(&turn, 1);
+        flag[0] = 1;
+        turn = 1;
         while (flag[1] && turn == 1)
             ;
         counter ++;
-//        flag[0] = 0;
-        __sync_lock_release(&flag[0]);
+        flag[0] = 0;
     }
 }
 
@@ -48,15 +45,12 @@ void *thread_dec(void *buf) {
     int tmp;
 
     for (i = 0; i < 10000000; i++) {
-//        flag[1] = 1;
-//        turn = 0;
-        __sync_lock_test_and_set(&flag[1], 1);
-        __sync_lock_test_and_set(&turn, 0);
+        flag[1] = 1;
+        turn = 0;
         while (flag[0] && turn == 0)
             ;
         counter --;
-//        flag[1] = 0;
-        __sync_lock_release(&flag[1]);
+        flag[1] = 0;
     }
 }
 
@@ -67,14 +61,16 @@ int main() {
     void *res;
     cpu_set_t c;   
 
-    CPU_ZERO(&c);
-    CPU_SET(3, &c);
-
     s = pthread_attr_init(&attr);
     if (s)
         perror("pthread_attr_init");
 
-    //pthread_attr_setaffinity_np(&attr, sizeof(c), &c);
+    if (argc == 2){
+        int cpu = atoi(argv[1]);
+        CPU_ZERO(&c);
+        CPU_SET(cpu, &c);
+        pthread_attr_setaffinity_np(&attr, sizeof(c), &c);
+    }
 
     s = pthread_create(&t1, &attr, thread_inc, NULL);
     if (s)
