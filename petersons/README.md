@@ -95,5 +95,51 @@ void *thread_inc(void *buf) {
 ```
 The generated assembly with -O2 optimization is as follows:
 ```
+$objdump -Sd petersons-atomic-store | less
+
+0000000000001350 <thread_inc>:
+void *thread_inc(void *buf) {
+    1350:       f3 0f 1e fa             endbr64 
+    1354:       ba 80 96 98 00          mov    $0x989680,%edx
+        __sync_lock_test_and_set(&flag[0], 1);
+    1359:       b9 01 00 00 00          mov    $0x1,%ecx
+    135e:       66 90                   xchg   %ax,%ax
+    1360:       89 c8                   mov    %ecx,%eax
+    1362:       87 05 b8 2c 00 00       xchg   %eax,0x2cb8(%rip)        # 4020 <flag>
+        __sync_lock_test_and_set(&turn, 1);
+    1368:       89 c8                   mov    %ecx,%eax
+    136a:       87 05 a8 2c 00 00       xchg   %eax,0x2ca8(%rip)        # 4018 <turn>
+        while (flag[1] && turn == 1)
+    1370:       eb 11                   jmp    1383 <thread_inc+0x33>
+    1372:       66 0f 1f 44 00 00       nopw   0x0(%rax,%rax,1)
+    1378:       8b 05 9a 2c 00 00       mov    0x2c9a(%rip),%eax        # 4018 <turn>
+    137e:       83 f8 01                cmp    $0x1,%eax
+    1381:       75 0a                   jne    138d <thread_inc+0x3d>
+    1383:       8b 05 9b 2c 00 00       mov    0x2c9b(%rip),%eax        # 4024 <flag+0x4>
+    1389:       85 c0                   test   %eax,%eax
+    138b:       75 eb                   jne    1378 <thread_inc+0x28>
+        counter ++;
+    138d:       83 05 94 2c 00 00 01    addl   $0x1,0x2c94(%rip)        # 4028 <counter>
+        __sync_lock_release(&flag[0]);
+    1394:       c7 05 82 2c 00 00 00    movl   $0x0,0x2c82(%rip)        # 4020 <flag>
+    139b:       00 00 00 
+    for (i = 0; i < 10000000; i++) {
+    139e:       83 ea 01                sub    $0x1,%edx
+    13a1:       75 bd                   jne    1360 <thread_inc+0x10>
+}
+    13a3:       c3                      retq   
+    13a4:       66 66 2e 0f 1f 84 00    data16 nopw %cs:0x0(%rax,%rax,1)
+    13ab:       00 00 00 00 
+    13af:       90                      nop
+
 
 ```
+Especially look at the lines where ``turn`` is set to 1. 
+```
+       __sync_lock_test_and_set(&turn, 1);
+    1368:       89 c8                   mov    %ecx,%eax
+    136a:       87 05 a8 2c 00 00       xchg   %eax,0x2ca8(%rip)        # 4018 <turn>
+```
+This store operation is performed by initializing the ``eax`` register to one and then exchanging it `atomically` with the memory contents of ``turn``. Note that in x86-64, the xchg instruction performs an `atomic swap` operations on both its operands. This is a property of x86-64 which the C compiler is using to its advantage for performing atomic stores via the ``__sync_lock_test_and_set`` which is a GNU Compiler Collection (GCC) builtin. Note that this is not a C library command. There are other standard C library alternatives to acheive the same portably across all architectures that we will discuss shortly. In any event, the atomic stores do the job and the Peterson's algorithm can now correctly protect the counter update critical section. Also note the use of ``__sync_lock_release`` GCC builtin to reset the ``flag`` to zero. Under x86-64 which preserves store ordering, there is no special assembly instruction needed here and a simple store ``movl`` instruction is emitted by the compiler for this.
+
+## Code Emitted on ARM Architecture
