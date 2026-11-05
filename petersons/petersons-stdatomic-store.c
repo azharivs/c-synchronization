@@ -1,18 +1,3 @@
-/* 
-
-build:
-
-gcc -g3 -o petersons-alg petersons-alg.c -lpthread
-
-run it as follows to see the effect 
-of the race condition:
-
-for i in {1..10}; do ./petersons-alg ; done;
-
-inspect the assembly:
-
-objdump -Sd petersons-alg | less
-*/
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <pthread.h>
@@ -28,13 +13,11 @@ atomic_int turn = 0;
 // P0
 void *thread_inc(void *buf) {
     int i = 0;
-    int tmp;
 
     for (i = 0; i < 10000000; i++) {
         atomic_store_explicit(&flag[0], 1, memory_order_relaxed);
         atomic_store_explicit(&turn, 1, memory_order_relaxed);
-        while (atomic_load_explicit(&flag[1], memory_order_relaxed) && \
-                atomic_load_explicit(&turn, memory_order_relaxed) == 1)
+        while (flag[1] && turn == 1)
             ;
         counter ++;
         atomic_store_explicit(&flag[0], 0, memory_order_relaxed);
@@ -44,13 +27,11 @@ void *thread_inc(void *buf) {
 // P1
 void *thread_dec(void *buf) {
     int i = 0;
-    int tmp;
 
     for (i = 0; i < 10000000; i++) {
         atomic_store_explicit(&flag[1], 1, memory_order_relaxed);
         atomic_store_explicit(&turn, 0, memory_order_relaxed);
-        while (atomic_load_explicit(&flag[0], memory_order_relaxed) && \
-                atomic_load_explicit(&turn, memory_order_relaxed) == 0)
+        while (flag[0] && turn == 0)
             ;
         counter --;
         atomic_store_explicit(&flag[1], 0, memory_order_relaxed);

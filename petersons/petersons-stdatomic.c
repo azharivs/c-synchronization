@@ -21,6 +21,15 @@ objdump -Sd petersons-alg | less
 #include <stdlib.h>
 #include <stdatomic.h>
 
+#ifndef MEM_ORDER_STORE
+#define MEM_ORDER_STORE memory_order_relaxed
+#endif
+
+#ifndef MEM_ORDER_LOAD
+#define MEM_ORDER_LOAD memory_order_relaxed
+#endif
+
+
 int counter = 0;
 atomic_int flag[2] = {0, 0};
 atomic_int turn = 0;
@@ -31,13 +40,13 @@ void *thread_inc(void *buf) {
     int tmp;
 
     for (i = 0; i < 10000000; i++) {
-        atomic_store_explicit(&flag[0], 1, memory_order_release);
-        atomic_store_explicit(&turn, 1, memory_order_release);
-        while (atomic_load_explicit(&flag[1], memory_order_acquire) == 1 && \
-                atomic_load_explicit(&turn, memory_order_acquire) == 1)
+        atomic_store_explicit(&flag[0], 1, MEM_ORDER_STORE);
+        atomic_store_explicit(&turn, 1, MEM_ORDER_STORE);
+        while (atomic_load_explicit(&flag[1], MEM_ORDER_LOAD) == 1 && \
+                atomic_load_explicit(&turn, MEM_ORDER_LOAD) == 1)
             ;
         counter ++;
-        atomic_store_explicit(&flag[0], 0, memory_order_release);
+        atomic_store_explicit(&flag[0], 0, MEM_ORDER_STORE);
     }
 }
 
@@ -47,13 +56,13 @@ void *thread_dec(void *buf) {
     int tmp;
 
     for (i = 0; i < 10000000; i++) {
-        atomic_store_explicit(&flag[1], 1, memory_order_release);
-        atomic_store_explicit(&turn, 0, memory_order_release);
-        while (atomic_load_explicit(&flag[0], memory_order_acquire) == 1 && \
-                atomic_load_explicit(&turn, memory_order_acquire) == 0)
+        atomic_store_explicit(&flag[1], 1, MEM_ORDER_STORE);
+        atomic_store_explicit(&turn, 0, MEM_ORDER_STORE);
+        while (atomic_load_explicit(&flag[0], MEM_ORDER_LOAD) == 1 && \
+                atomic_load_explicit(&turn, MEM_ORDER_LOAD) == 0)
             ;
         counter --;
-        atomic_store_explicit(&flag[1], 0, memory_order_release);
+        atomic_store_explicit(&flag[1], 0, MEM_ORDER_STORE);
     }
 }
 
