@@ -192,3 +192,8 @@ void *thread_inc(void *buf) {
  ba0:   d65f03c0        ret
  ba4:   d503201f        nop
 ```
+# The Four Pillars of Concurrency
+## Atomicity
+## Ordering/Visibility
+## Coherency
+## Synchronization
