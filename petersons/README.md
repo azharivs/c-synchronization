@@ -143,3 +143,52 @@ Especially look at the lines where ``turn`` is set to 1.
 This store operation is performed by initializing the ``eax`` register to one and then exchanging it `atomically` with the memory contents of ``turn``. Note that in x86-64, the xchg instruction performs an `atomic swap` operations on both its operands. This is a property of x86-64 which the C compiler is using to its advantage for performing atomic stores via the ``__sync_lock_test_and_set`` which is a GNU Compiler Collection (GCC) builtin. Note that this is not a C library command. There are other standard C library alternatives to acheive the same portably across all architectures that we will discuss shortly. In any event, the atomic stores do the job and the Peterson's algorithm can now correctly protect the counter update critical section. Also note the use of ``__sync_lock_release`` GCC builtin to reset the ``flag`` to zero. Under x86-64 which preserves store ordering, there is no special assembly instruction needed here and a simple store ``movl`` instruction is emitted by the compiler for this.
 
 ## Code Emitted on ARM Architecture
+To build for ARM on x86-64 you would have to install the ARM cross compiler. Here we are going to use the ARM64 cross compiler:
+```
+$ aarch64-linux-gnu-gcc -g3  -O2 -o petersons-alg-atomic-store-arm petersons-alg-atomic-store.c -lpthread
+$ aarch64-linux-gnu-objdump -Sd petersons-atomic-store-arm | less
+```
+And this is the ARM64 assembly for ``thread_inc`` with -O2 compiler optimizations: 
+```
+0000000000000b38 <thread_inc>:
+    for (i = 0; i < 10000000; i++) {
+ b38:   d0000080        adrp    x0, 12000 <__data_start>
+        __sync_lock_test_and_set(&flag[0], 1);
+ b3c:   91006000        add     x0, x0, #0x18
+void *thread_inc(void *buf) {
+ b40:   5292d002        mov     w2, #0x9680                     // #38528
+        __sync_lock_test_and_set(&turn, 1);
+ b44:   91002004        add     x4, x0, #0x8
+void *thread_inc(void *buf) {
+ b48:   72a01302        movk    w2, #0x98, lsl #16
+        __sync_lock_test_and_set(&flag[0], 1);
+ b4c:   52800023        mov     w3, #0x1                        // #1
+ b50:   885f7c01        ldxr    w1, [x0]
+ b54:   88057c03        stxr    w5, w3, [x0]
+ b58:   35ffffc5        cbnz    w5, b50 <thread_inc+0x18>
+ b5c:   d5033bbf        dmb     ish
+        __sync_lock_test_and_set(&turn, 1);
+ b60:   885f7c81        ldxr    w1, [x4]
+ b64:   88057c83        stxr    w5, w3, [x4]
+ b68:   35ffffc5        cbnz    w5, b60 <thread_inc+0x28>
+ b6c:   d5033bbf        dmb     ish
+        while (flag[1] && turn == 1)
+ b70:   14000004        b       b80 <thread_inc+0x48>
+ b74:   b9400801        ldr     w1, [x0, #8]
+ b78:   7100043f        cmp     w1, #0x1
+ b7c:   54000061        b.ne    b88 <thread_inc+0x50>  // b.any
+ b80:   b9400401        ldr     w1, [x0, #4]
+ b84:   35ffff81        cbnz    w1, b74 <thread_inc+0x3c>
+        counter ++;
+ b88:   b9400c01        ldr     w1, [x0, #12]
+ b8c:   11000421        add     w1, w1, #0x1
+ b90:   b9000c01        str     w1, [x0, #12]
+        __sync_lock_release(&flag[0]);
+ b94:   889ffc1f        stlr    wzr, [x0]
+    for (i = 0; i < 10000000; i++) {
+ b98:   71000442        subs    w2, w2, #0x1
+ b9c:   54fffda1        b.ne    b50 <thread_inc+0x18>  // b.any
+}
+ ba0:   d65f03c0        ret
+ ba4:   d503201f        nop
+```
