@@ -192,8 +192,14 @@ void *thread_inc(void *buf) {
  ba0:   d65f03c0        ret
  ba4:   d503201f        nop
 ```
-# The Four Pillars of Concurrency
+# The Three Pillars of Concurrency
 ## Atomicity
 ## Ordering/Visibility
-## Coherency
 ## Synchronization
+
+# Main Mechanisms For Enforcing Concurrency Pillars
+## Cache Coherence
+## Store Buffers
+## Load Queues and Speculative Execution
+
+
